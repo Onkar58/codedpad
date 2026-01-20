@@ -233,7 +233,7 @@ export function FilesPage() {
                   textDecoration: "none",
                   fontSize: "14px",
                 }}
-                onClick={() => handleDownload(file.key)}
+                onClick={() => handleDownload(file.key!)}
               >
                 Download
               </button>

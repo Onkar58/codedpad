@@ -1,5 +1,6 @@
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 export async function getUploadUrl(file: File) {
-  const res = await fetch("http://localhost:4000/s3/presign-upload", {
+  const res = await fetch(`${BACKEND_URL}/s3/presign-upload`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -21,7 +22,7 @@ export async function uploadToS3(file: File, uploadUrl: string) {
 }
 
 export async function getDownloadUrl(key: string) {
-  const res = await fetch("http://localhost:4000/s3/presign-download", {
+  const res = await fetch(`${BACKEND_URL}/s3/presign-download`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ key }),

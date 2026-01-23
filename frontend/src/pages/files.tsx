@@ -1,8 +1,9 @@
-import React from "react";
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Loader } from "../components/Loader";
+import { motion, AnimatePresence } from "framer-motion";
+
 import { getUploadUrl, uploadToS3 } from "../utils/fileFunctions";
+import { Loader } from "../components/Loader";
 
 type FileItem = {
   id: string;
@@ -20,18 +21,23 @@ export function FilesPage() {
 
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(true);
+
   useEffect(() => {
     async function getAllFiles() {
-      const resp = await fetch(`${BACKEND_URL}/metadata/${code}/files`);
-      const body = await resp.json();
-      if (Array.isArray(body?.files) && body.files.length) {
-        console.log({ body });
-        setFiles(body?.files);
+      try {
+        const resp = await fetch(`${BACKEND_URL}/metadata/${code}/files`);
+        const body = await resp.json();
+        if (Array.isArray(body?.files)) {
+          setFiles(body.files);
+        }
+      } catch (err) {
+        console.log({ err });
+      } finally {
+        setLoading(false);
       }
     }
     getAllFiles();
-    setLoading(false);
-  }, []);
+  }, [code]);
 
   const handleUploadClick = () => {
     fileInputRef.current?.click();
@@ -50,95 +56,83 @@ export function FilesPage() {
         size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
         status: "uploading",
       };
+
+      setFiles((prev) => [...prev, newFile]);
       await uploadFile(file, newFile);
     });
   };
 
   const uploadFile = async (file: File, newFile: FileItem) => {
-    const formData = new FormData();
-    formData.append("file", file);
-
     const { key, uploadUrl } = await getUploadUrl(file);
     await uploadToS3(file, uploadUrl);
-    const newFileItem: FileItem = {
+
+    const uploadedFile: FileItem = {
       ...newFile,
       key,
       status: "uploaded",
     };
-    setFiles((prev) => [...prev, ...[newFileItem]]);
+
+    setFiles((prev) =>
+      prev.map((f) => (f.id === newFile.id ? uploadedFile : f)),
+    );
+
     await fetch(`${BACKEND_URL}/metaData/${code}/files`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ files: [newFileItem] }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ files: [uploadedFile] }),
     });
   };
 
   const handleDelete = async (fileId: string) => {
+    const fileKey = files.find((f) => f.id === fileId)?.key;
+    if (!fileKey) return;
+
     await fetch(`${BACKEND_URL}/metaData/${code}/files`, {
       method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        fileKey: files.find((file) => file.id === fileId)?.key,
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileKey }),
     });
-    setFiles((prev) => {
-      const newFiles = prev.filter((file) => file.id !== fileId);
-      return newFiles;
-    });
+
+    setFiles((prev) => prev.filter((f) => f.id !== fileId));
   };
+
   const handleDownload = async (fileKey: string) => {
     const resp = await fetch(`${BACKEND_URL}/s3/presign-download`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        key: fileKey,
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: fileKey }),
     });
+
     const { downloadUrl } = await resp.json();
-    console.log({ downloadUrl });
     window.open(downloadUrl, "_blank");
   };
 
   if (loading) {
     return (
-      <div style={{ textAlign: "center", marginTop: "40px" }}>
+      <div className="flex justify-center items-center min-h-screen text-app-muted">
         Loading files for "{code}"...
       </div>
     );
   }
 
   return (
-    <div style={{ padding: "40px", height: "100vh", width: "100vw" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "start",
-          gap: "20px",
-        }}
-      >
-        <h1>Files for: {code}</h1>
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      className="min-h-screen px-10 py-8 space-y-8"
+    >
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Files for <span className="text-app-muted">{code}</span>
+        </h1>
 
         <button
           onClick={handleUploadClick}
-          style={{
-            // marginBottom: "20px",
-            padding: "10px 16px",
-            borderRadius: "8px",
-            border: "none",
-            background: "#22c55e",
-            color: "white",
-            cursor: "pointer",
-            fontSize: "14px",
-          }}
+          className="ml-4 px-4 py-2 rounded-md bg-emerald-500 text-black text-sm font-medium hover:bg-emerald-400 transition"
         >
-          Upload Files
+          Upload files
         </button>
       </div>
 
@@ -146,101 +140,64 @@ export function FilesPage() {
         ref={fileInputRef}
         type="file"
         multiple
-        style={{ display: "none" }}
+        hidden
         onChange={handleFileChange}
       />
 
-      <div
-        style={{
-          display: "flex",
-          gap: "16px",
-          flexWrap: "wrap",
-        }}
-      >
-        {files.length === 0 && <h1>No Files found for the code</h1>}
-        {files.map((file) => (
-          <div
-            key={file.id}
-            style={{
-              position: "relative",
-              width: "220px",
-              padding: "16px",
-              borderRadius: "12px",
-              border: "1px solid #ddd",
-              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-              display: "flex",
-              flexDirection: "column",
-              gap: "10px",
-              overflow: "hidden",
-            }}
-          >
-            {/* DELETE BUTTON */}
-            {file.status === "uploaded" && (
-              <button
-                onClick={() => handleDelete(file.id)}
-                style={{
-                  position: "absolute",
-                  top: "8px",
-                  right: "8px",
-                  border: "none",
-                  color: "red",
-                  width: "24px",
-                  height: "24px",
-                  cursor: "pointer",
-                  fontWeight: "bold",
-                  background: "none",
-                  zIndex: 10,
-                }}
-              >
-                ×
-              </button>
-            )}
+      {/* Files Grid */}
+      <div className="flex flex-wrap gap-4">
+        {files.length === 0 && (
+          <p className="text-app-muted">No files found for this code.</p>
+        )}
 
-            {/* PROGRESS OVERLAY */}
-            {file.status === "uploading" && (
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  background: "rgba(0,0,0,0.55)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexDirection: "column",
-                  color: "white",
-                  gap: "8px",
-                  zIndex: 5,
-                }}
-              >
-                <Loader />
-              </div>
-            )}
+        <AnimatePresence>
+          {files.map((file) => (
+            <motion.div
+              key={file.id}
+              layout
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.2 }}
+              className="relative w-[220px] rounded-xl border border-app bg-app-muted p-4 flex flex-col gap-2"
+            >
+              {/* Delete */}
+              {file.status === "uploaded" && (
+                <button
+                  onClick={() => handleDelete(file.id)}
+                  className="absolute top-2 right-2 text-red-400 hover:text-red-300"
+                >
+                  ×
+                </button>
+              )}
 
-            <div style={{ fontWeight: "600" }}>{file.name}</div>
-            <div style={{ color: "#666", fontSize: "14px" }}>
-              Size: {file.size}
-            </div>
+              {/* Upload Overlay */}
+              {file.status === "uploading" && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2 rounded-xl z-10"
+                >
+                  <Loader />
+                  <span className="text-sm text-white">Uploading…</span>
+                </motion.div>
+              )}
 
-            {file.status === "uploaded" && file.key && (
-              <button
-                style={{
-                  marginTop: "auto",
-                  textAlign: "center",
-                  padding: "8px",
-                  borderRadius: "8px",
-                  background: "#0070f3",
-                  color: "white",
-                  textDecoration: "none",
-                  fontSize: "14px",
-                }}
-                onClick={() => handleDownload(file.key!)}
-              >
-                Download
-              </button>
-            )}
-          </div>
-        ))}
+              <div className="font-medium truncate">{file.name}</div>
+              <div className="text-xs text-app-muted">Size: {file.size}</div>
+
+              {file.status === "uploaded" && file.key && (
+                <button
+                  onClick={() => handleDownload(file.key!)}
+                  className="mt-auto text-sm py-1.5 rounded-md bg-blue-500 text-white hover:bg-blue-400 transition"
+                >
+                  Download
+                </button>
+              )}
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
-    </div>
+    </motion.div>
   );
 }

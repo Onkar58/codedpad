@@ -1,8 +1,9 @@
+import React from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { FilesPage } from "./pages/files";
 import { Home } from "./pages/home";
 
-export default function App() {
+export function App() {
   return (
     <BrowserRouter>
       <Routes>
